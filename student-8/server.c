@@ -9,13 +9,13 @@
 #include "header_msg.h"
 #include "header_monitor.h"
 
-// Prototipo della funzione worker
-void *thread_worker(void *);
+void * thread_worker(void *);
 
 int main() {
+
     srand(getpid());
 
-    /* TBD: Ottenere le due code di messaggi "connect" ed "ack" */
+    /* Ottenere le due code di messaggi "connect" ed "ack" (le stesse create nel programma "start") */
     key_t connect_key = ftok(".", 'a');
     int id_connect = msgget(connect_key, 0666);
     if (id_connect < 0) {
@@ -30,27 +30,32 @@ int main() {
         exit(1);
     }
 
-    /* Allocare e inizializzare un oggetto monitor */
+    // Allocare e inizializzare un oggetto monitor
     MonitorPC *p = (MonitorPC *)malloc(sizeof(MonitorPC));
     if (p == NULL) {
         perror("Errore allocazione monitor");
         exit(1);
     }
-    init_monitorpc(p);
 
-    pthread_t worker[2];
+    pthread_t worker[2]; // Array di thread
+
+    // Creare un attributo per i thread
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED); // Configura i thread come detached
 
     // Ripete per 2 client
     for (int i = 0; i < 2; i++) {
+
         /* Attendere un messaggio "connect" */
         messaggio_connect msg_connect;
         if (msgrcv(id_connect, &msg_connect, sizeof(messaggio_connect) - sizeof(long), 0, 0) < 0) {
             perror("Errore ricezione messaggio connect");
             exit(1);
         }
-        pid_t pid = msg_connect.pid; // Estrarre il PID del client
+        pid_t pid = msg_connect.pid;
 
-        /* Creare una coda di richieste e una di risposte per la connessione */
+        // Creare una coda di richieste e risposte dedicata al client
         int id_coda_richieste = msgget(IPC_PRIVATE, IPC_CREAT | 0666);
         if (id_coda_richieste < 0) {
             perror("Errore creazione coda richieste");
@@ -63,7 +68,7 @@ int main() {
             exit(1);
         }
 
-        /* Inviare un messaggio "ack" con gli ID delle code */
+        // Inviare un messaggio "ack", contenente gli ID delle code di richieste e risposte
         messaggio_ack msg_ack;
         msg_ack.type = ACK_CONNECT;
         msg_ack.id_coda_richiesta = id_coda_richieste;
@@ -75,7 +80,7 @@ int main() {
 
         printf("[SERVER] Connesso client %d\n", pid);
 
-        /* Creare un thread worker */
+        /* Creare un thread worker, che esegua la funzione "thread_worker()" */
         typedef struct {
             int id_coda_richieste;
             int id_coda_risposte;
@@ -89,26 +94,26 @@ int main() {
         args->monitor = p;
         args->pid = pid;
 
-        if (pthread_create(&worker[i], NULL, thread_worker, (void *)args) != 0) {
-            perror("Errore creazione thread worker");
+        // Creare il thread con l'attributo di detached
+        int rc = pthread_create(&worker[i], &attr, thread_worker, (void *)args);
+        if (rc != 0) {
+            fprintf(stderr, "Errore nella creazione del thread: %s\n", strerror(rc));
             exit(1);
         }
     }
 
-    // Attendere la terminazione dei thread
-    for (int i = 0; i < 2; i++) {
-        pthread_join(worker[i], NULL);
-    }
+    /* Non è più necessario chiamare pthread_join, poiché i thread sono detached */
 
     /* Deallocare l'oggetto monitor */
     remove_monitorpc(p);
     free(p);
 
-    return 0;
+    // Distruggere l'attributo del thread
+    pthread_attr_destroy(&attr);
 }
 
-void *thread_worker(void *arg) {
-    /* Estrarre i parametri passati */
+void * thread_worker(void *arg) {
+
     typedef struct {
         int id_coda_richieste;
         int id_coda_risposte;
@@ -125,9 +130,8 @@ void *thread_worker(void *arg) {
 
     // Ogni worker serve 6 richieste, e poi termina
     for (int i = 0; i < 6; i++) {
-        printf("[SERVER] In attesa di richiesta dal client %d\n", pid);
 
-        /* Attendere un messaggio dalla coda delle richieste */
+        printf("[SERVER] In attesa di richiesta dal client %d\n", pid);
         messaggio_richiesta msg_req;
         if (msgrcv(id_coda_richieste, &msg_req, sizeof(messaggio_richiesta) - sizeof(long), 0, 0) < 0) {
             perror("Errore ricezione richiesta");
@@ -136,34 +140,27 @@ void *thread_worker(void *arg) {
 
         if (msg_req.type == RICHIESTA_PRODUZIONE) {
             printf("[SERVER] Richiesta di produzione dal client %d\n", pid);
+            // Gestire la richiesta di produzione
+            int valore = consuma(p);  // Metodo consuma() non implementato
 
-            /* Estrarre il valore dal messaggio e chiamare produci */
-            int valore = msg_req.valore;
-            produci(p, valore);
-
+            // Chiamare produci()
+            produci(p, msg_req.valore);
             printf("[SERVER] Valore prodotto: %d (client %d)\n", valore, pid);
 
-            /* Inviare una risposta */
-            messaggio_risposta msg_risp = {RISPOSTA_PRODUZIONE, 0};
-            if (msgsnd(id_coda_risposte, &msg_risp, sizeof(messaggio_risposta) - sizeof(long), 0) < 0) {
-                perror("Errore invio risposta produzione");
-            }
+            // Inviare risposta di tipo PRODUZIONE
+            messaggio_risposta msg_risp = {RISPOSTA_PRODUZIONE, valore};
+            msgsnd(id_coda_risposte, &msg_risp, sizeof(messaggio_risposta) - sizeof(long), 0);
         } else if (msg_req.type == RICHIESTA_CONSUMAZIONE) {
             printf("[SERVER] Richiesta di consumazione dal client %d\n", pid);
 
-            /* Chiamare consuma */
-            int valore = consuma(p);
-
+            int valore = consuma(p);  // Metodo consuma() non implementato
             printf("[SERVER] Valore consumato: %d (client %d)\n", valore, pid);
 
-            /* Inviare una risposta */
+            // Inviare risposta di tipo CONSUMAZIONE
             messaggio_risposta msg_risp = {RISPOSTA_CONSUMAZIONE, valore};
-            if (msgsnd(id_coda_risposte, &msg_risp, sizeof(messaggio_risposta) - sizeof(long), 0) < 0) {
-                perror("Errore invio risposta consumazione");
-            }
+            msgsnd(id_coda_risposte, &msg_risp, sizeof(messaggio_risposta) - sizeof(long), 0);
         }
     }
 
-    printf("[SERVER] Worker per client %d terminato\n", pid);
     pthread_exit(NULL);
 }
