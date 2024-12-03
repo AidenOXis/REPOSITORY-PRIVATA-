@@ -63,7 +63,7 @@ int produci(MonitorProdCons * m, int val) {
         m->thread_prod++;
         pthread_cond_wait(&m->cv_cons,&m->mutex);
         m->thread_prod--;      
-    }
+    
 
     
 
@@ -71,7 +71,7 @@ int produci(MonitorProdCons * m, int val) {
     struct timeval t1;
 	gettimeofday(&t1,NULL);
     long start_time = t1.tv_sec*1000000 + t1.tv_usec;
-
+	}
 
     // DOPO L'ATTESA, SALVA DI NUOVO L'ORARIO, E CONTROLLA SE SONO PASSATI 3 SECONDI
     struct timeval t2;
