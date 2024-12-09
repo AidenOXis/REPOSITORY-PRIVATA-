@@ -34,12 +34,16 @@ void produci(MonitorStreaming * p, char * stringa, size_t lunghezza, key_t chiav
     if(p->count == DIM){
         wait_condition(&p->monitor, CV_PRODUTTORE);
     }
-    
+    int i = 0 ;
+    while (i<DIM && p->vettore[p->testa].stato != LIBERO){
+        p->testa=(p->testa+1)%DIM;
+    }
 
     sleep(1);
   
    
     p->vettore[p->testa].stato=IN_USO;
+    
     
 
     int shmid = shmget(chiave,lunghezza + 1, IPC_CREAT | 0664);
@@ -71,6 +75,10 @@ void consuma(MonitorStreaming * p, char * stringa, size_t * lunghezza) {
     if(p->count == 0){
         wait_condition(&p->monitor,CV_CONSUMATORE);
     }
+    int i = 0 ; 
+    while(p->vettore[i].stato != OCCUPATO){
+        p->coda=(p->coda+1)%DIM;
+    }
 
     sleep(1);
     
@@ -100,11 +108,7 @@ void consuma(MonitorStreaming * p, char * stringa, size_t * lunghezza) {
 void distruggi(MonitorStreaming * p) {
 
     /* TBD: Completare il metodo */
-    for(int i = 0; i < DIM; i++) {
-        if(p->vettore[i].stato != LIBERO) {
-            int shmid = shmget(ftok(".", 'a' + i), p->vettore[i].dimensione + 1, 0664);
-            shmctl(shmid, IPC_RMID, NULL);
-        }
-    }
+    
+    shmctl(shmid, IPC_RMID, NULL);
     remove_monitor(&p->monitor);
 }
